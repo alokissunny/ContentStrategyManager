@@ -12,8 +12,13 @@
  *
  * Uses the plan queue's Redis (REDIS_URL). On when PLAN_QUEUE or REEL_QUEUE is
  * set; if Redis is unreachable the reel runs in the API process instead.
+ *
+ * REEL_RUNNER=lambda (+ REEL_SQS_URL): reels go to SQS and run one per AWS Lambda instead
+ * (services/reelLambdaRunner.js, src/lambda/reelWorker.js) — same CaptureReel record, liveness
+ * from a lease on the reel. BullMQ stays as the kill switch (REEL_RUNNER unset) and for local dev.
  */
 const { redisConnection, envPositiveInt } = require('./planQueue');
+const lambdaRunner = require('./reelLambdaRunner');
 
 const QUEUE_NAME = 'capture-reel';
 
@@ -22,6 +27,9 @@ const QUEUE_NAME = 'capture-reel';
 // machine re-queues (and renders) prod's reels. Stamped on every reel.
 function queueTag() {
   if (process.env.REEL_QUEUE_TAG) return process.env.REEL_QUEUE_TAG;
+  if (lambdaRunner.isLambdaRunner()) {
+    return require('crypto').createHash('sha1').update(`sqs:${process.env.REEL_SQS_URL}`).digest('hex').slice(0, 12);
+  }
   const basis = isReelQueueConfigured() ? `redis:${process.env.REDIS_URL}` : `local:${require('os').hostname()}`;
   return require('crypto').createHash('sha1').update(basis).digest('hex').slice(0, 12);
 }
@@ -29,7 +37,15 @@ const ENQUEUE_TIMEOUT_MS = 5000;
 
 const flag = (name) => ['1', 'true', 'on', 'yes'].includes(String(process.env[name] || '').trim().toLowerCase());
 
+// BullMQ on Redis is set up (the Render reel worker's queue)
+function redisReelQueue() {
+  if (!String(process.env.REDIS_URL || '').trim()) return false;
+  if (String(process.env.REEL_QUEUE || '').trim()) return flag('REEL_QUEUE');
+  return flag('PLAN_QUEUE');
+}
+
 function isReelQueueConfigured() {
+  if (lambdaRunner.isLambdaRunner()) return true;
   if (!String(process.env.REDIS_URL || '').trim()) return false;
   if (String(process.env.REEL_QUEUE || '').trim()) return flag('REEL_QUEUE');
   return flag('PLAN_QUEUE');
@@ -61,6 +77,21 @@ async function enqueueCaptureReel(reelId, { fresh = false, delayMs = 0 } = {}) {
   const id = String(reelId);
   const { runInProcess, MAX_ATTEMPTS } = require('./captureReelAgent');
   if (!isReelQueueConfigured()) { runInProcess(id); return 'local'; }
+  if (lambdaRunner.isLambdaRunner()) {
+    try {
+      const messageId = await withTimeout(lambdaRunner.sendReel(id, { delayMs }), ENQUEUE_TIMEOUT_MS, 'enqueue');
+      await require('../models/CaptureReel').updateOne({ _id: id }, { $set: { jobId: `sqs:${messageId}` } }).catch(() => {});
+      return 'lambda';
+    } catch (err) {
+      // SQS unreachable / not set up: the Render reel worker (BullMQ) when there is one, never the API
+      if (!redisReelQueue()) {
+        console.error(`[reelQueue] could not send reel ${id} to SQS (${err.message}) — running it here`);
+        runInProcess(id);
+        return 'local';
+      }
+      console.error(`[reelQueue] could not send reel ${id} to SQS (${err.message}) — queued for the Render worker`);
+    }
+  }
   const jobId = fresh ? `${id}-${Date.now().toString(36)}` : id;
   try {
     await withTimeout(reelQueue().add('reel', { reelId: id }, {
@@ -85,6 +116,13 @@ async function enqueueCaptureReel(reelId, { fresh = false, delayMs = 0 } = {}) {
 /** Is a job for this reel waiting or running anywhere? null = cannot tell. */
 async function reelJobAlive(reel) {
   if (!isReelQueueConfigured()) return null;
+  if (lambdaRunner.isLambdaRunner()) {
+    // the lease / queued time is on the reel document — load it when only an id was given
+    const doc = typeof reel === 'object' && reel && 'updatedAt' in reel && 'leaseUntil' in reel
+      ? reel
+      : await require('../models/CaptureReel').findById(typeof reel === 'object' ? reel._id : reel).select('status leaseUntil updatedAt').lean();
+    return doc ? lambdaRunner.reelAlive(doc) : false;
+  }
   const jobId = typeof reel === 'object' && reel ? (reel.jobId || String(reel._id)) : String(reel);
   try {
     const job = await withTimeout(reelQueue().getJob(jobId), 2000, 'getJob');
@@ -99,6 +137,7 @@ async function reelJobAlive(reel) {
 /** How many reels are ahead in the queue (for "Waiting for the reel ahead…"). */
 async function reelQueueDepth() {
   if (!isReelQueueConfigured()) return null;
+  if (lambdaRunner.isLambdaRunner()) return lambdaRunner.queueDepth();
   try {
     const c = await withTimeout(reelQueue().getJobCounts('waiting', 'active', 'delayed'), 2000, 'counts');
     return c;
@@ -109,6 +148,8 @@ async function reelQueueDepth() {
 
 async function removeReelJob(reel) {
   if (!isReelQueueConfigured()) return;
+  // an SQS message can't be pulled back by id: the run that receives it finds the reel closed
+  if (lambdaRunner.isLambdaRunner()) return;
   try {
     const job = await withTimeout(reelQueue().getJob(reel.jobId || String(reel._id)), 2000, 'getJob');
     if (job) await job.remove().catch(() => {});

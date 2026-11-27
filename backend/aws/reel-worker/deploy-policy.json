@@ -1,0 +1,86 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Identity",
+      "Effect": "Allow",
+      "Action": ["sts:GetCallerIdentity"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "Stack",
+      "Effect": "Allow",
+      "Action": ["cloudformation:*"],
+      "Resource": "arn:aws:cloudformation:*:*:stack/bauhly-reel-worker/*"
+    },
+    {
+      "Sid": "StackRead",
+      "Effect": "Allow",
+      "Action": ["cloudformation:ValidateTemplate", "cloudformation:DescribeStacks", "cloudformation:ListStacks"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CodeBucket",
+      "Effect": "Allow",
+      "Action": ["s3:CreateBucket", "s3:ListBucket", "s3:GetObject", "s3:PutObject", "s3:GetBucketLocation"],
+      "Resource": ["arn:aws:s3:::bauhly-reel-worker-code-*", "arn:aws:s3:::bauhly-reel-worker-code-*/*"]
+    },
+    {
+      "Sid": "Queues",
+      "Effect": "Allow",
+      "Action": ["sqs:*"],
+      "Resource": "arn:aws:sqs:*:*:capture-reels*"
+    },
+    {
+      "Sid": "Functions",
+      "Effect": "Allow",
+      "Action": ["lambda:*"],
+      "Resource": "arn:aws:lambda:*:*:function:bauhly-reel-worker*"
+    },
+    {
+      "Sid": "EventSourceMappings",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:CreateEventSourceMapping", "lambda:UpdateEventSourceMapping", "lambda:DeleteEventSourceMapping",
+        "lambda:GetEventSourceMapping", "lambda:ListEventSourceMappings", "lambda:TagResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "Roles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole", "iam:DeleteRole", "iam:GetRole", "iam:UpdateRole", "iam:PassRole", "iam:TagRole",
+        "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:GetRolePolicy",
+        "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies"
+      ],
+      "Resource": "arn:aws:iam::*:role/bauhly-reel-worker"
+    },
+    {
+      "Sid": "ApiSenderUser",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateUser", "iam:DeleteUser", "iam:GetUser", "iam:TagUser",
+        "iam:PutUserPolicy", "iam:DeleteUserPolicy", "iam:GetUserPolicy", "iam:ListUserPolicies",
+        "iam:ListAccessKeys"
+      ],
+      "Resource": "arn:aws:iam::*:user/bauhly-reel-queue-sender"
+    },
+    {
+      "Sid": "Logs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup", "logs:DeleteLogGroup", "logs:PutRetentionPolicy", "logs:DeleteRetentionPolicy",
+        "logs:DescribeLogGroups", "logs:TagResource", "logs:ListTagsForResource",
+        "logs:FilterLogEvents", "logs:GetLogEvents", "logs:DescribeLogStreams"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "Alarms",
+      "Effect": "Allow",
+      "Action": ["cloudwatch:PutMetricAlarm", "cloudwatch:DeleteAlarms", "cloudwatch:DescribeAlarms", "cloudwatch:TagResource", "cloudwatch:GetMetricStatistics"],
+      "Resource": "*"
+    }
+  ]
+}

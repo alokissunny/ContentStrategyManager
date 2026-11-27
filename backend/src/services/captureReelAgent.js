@@ -1504,7 +1504,13 @@ async function buildTimeline({ plan, material, voice, voiceUrl, brand, style = n
 const RENDER_STALL_MS = Number(process.env.REEL_RENDER_STALL_MS) || 4 * 60 * 1000;
 const RENDER_TIMEOUT_MS = Number(process.env.REEL_RENDER_TIMEOUT_MS) || 45 * 60 * 1000;
 
-function renderReel(timeline, outPath, { onProgress = null, timeoutMs = RENDER_TIMEOUT_MS, stallMs = RENDER_STALL_MS, script = 'render.mjs' } = {}) {
+// Lambda runner (src/lambda/reelWorker.js): the time this run must be finished by (epoch ms), so a
+// render never outlives the function; 0 = no limit (Render worker / in-process)
+let runDeadline = 0;
+const setRunDeadline = (at) => { runDeadline = Number(at) || 0; };
+const timeLeftMs = () => (runDeadline ? runDeadline - Date.now() : Infinity);
+
+function renderReel(timeline, outPath, { onProgress = null, timeoutMs = RENDER_TIMEOUT_MS, stallMs = RENDER_STALL_MS, script = 'render.mjs', env = null } = {}) {
   return new Promise((resolve, reject) => {
     const specPath = path.join(os.tmpdir(), `capreel-${crypto.randomUUID()}.json`);
     // sound effects (remotion/src/sfx.tsx) are on unless REEL_SFX=off
@@ -1512,7 +1518,7 @@ function renderReel(timeline, outPath, { onProgress = null, timeoutMs = RENDER_T
     fs.writeFileSync(specPath, JSON.stringify({ composition: 'CaptureReel', props: { reel } }));
     // its own process group, so a kill takes headless Chrome down with it
     // (killing only node leaves Chrome running, holding its memory)
-    const child = spawn('node', [script, specPath, outPath], { cwd: REMOTION_DIR, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+    const child = spawn(process.execPath, [script, specPath, outPath], { cwd: REMOTION_DIR, stdio: ['ignore', 'pipe', 'pipe'], detached: true, ...(env ? { env: { ...process.env, ...env } } : {}) });
     const killAll = () => { try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); } };
     // a stop asks first (render.mjs closes Chrome on SIGTERM), then forces
     const stopRender = () => {
@@ -1578,14 +1584,33 @@ function useLambdaFor(userId) {
   return !only.length || only.includes(String(userId));
 }
 
+// Inside the Lambda reel worker there is no Chrome: a failed Remotion render is tried once more with
+// chunks 3× bigger (fewer functions — throttling / a flaky chunk), and then the run is retried.
+const LOCAL_FALLBACK = String(process.env.REEL_LOCAL_FALLBACK || '1') !== '0';
+
 async function renderOnServer(timeline, outPath, { userId, ledger, onProgress }) {
   if (useLambdaFor(userId)) {
     const t0 = Date.now();
+    // the render must end before this run does (Lambda runner): keep a minute for upload + saving
+    const budget = () => {
+      const left = timeLeftMs() - 60 * 1000;
+      if (left < 60 * 1000) throw retryError('not enough time left in this run to render — retried');
+      return Math.min(RENDER_TIMEOUT_MS, left);
+    };
     try {
       const { timeline: light, notes } = await require('./reelRenderProxy').withRenderProxies(timeline);
       const proxyMs = Date.now() - t0;
       if (notes.length) ledger.add({ source: 'Capture reel — clip copies for Lambda', elapsedMs: proxyMs, output: notes.join(' · ') });
-      const got = await renderReel(light, outPath, { onProgress, script: 'render-lambda.mjs' });
+      let got;
+      try {
+        got = await renderReel(light, outPath, { onProgress, script: 'render-lambda.mjs', timeoutMs: budget() });
+      } catch (err) {
+        if (LOCAL_FALLBACK || err.userFacing || err.retryable || err.lambdaUnavailable) throw err;
+        const fpl = Math.max(150, (Number(process.env.REEL_LAMBDA_FRAMES_PER_LAMBDA) || 100) * 3);
+        ledger.add({ source: 'Capture reel — Lambda render failed', output: `${err.message} → tried again with ${fpl} frames per Lambda`, note: String(err.detail || '').slice(0, 300) });
+        onProgress?.(0);
+        got = await renderReel(light, outPath, { onProgress, script: 'render-lambda.mjs', timeoutMs: budget(), env: { REEL_LAMBDA_FRAMES_PER_LAMBDA: String(fpl) } });
+      }
       ledger.add({
         source: 'Capture reel — Lambda render',
         model: 'remotion-lambda',
@@ -1595,7 +1620,9 @@ async function renderOnServer(timeline, outPath, { userId, ledger, onProgress })
       });
       return { ...got, timing: { ...(got.timing || {}), ...(proxyMs > 1000 ? { 'render · clip copies': proxyMs } : {}) } };
     } catch (err) {
-      if (err.userFacing) throw err;
+      if (err.userFacing || err.retryable) throw err;
+      // no Chrome here (Lambda reel worker): the run fails and is retried from the saved cut
+      if (!LOCAL_FALLBACK) throw Object.assign(new Error(`Lambda render failed: ${err.message}`), { detail: err.detail });
       console.warn(`[captureReel] Lambda render failed (${err.message}${err.detail ? ` — ${err.detail}` : ''}) — rendering here`);
       ledger.add({ source: 'Capture reel — Lambda render failed', output: `${err.message} → rendered on the server instead`, note: String(err.detail || '').slice(0, 300) });
       onProgress?.(0);
@@ -2212,6 +2239,8 @@ module.exports = {
   _directReel: directReel,
   // scripts/test-reel-lambda.js
   _renderOnServer: renderOnServer,
+  // the Lambda reel worker (src/lambda/reelWorker.js) caps each run at the function's time
+  setRunDeadline,
   _costLedger: costLedger,
   runInProcess,
   isRunningHere,

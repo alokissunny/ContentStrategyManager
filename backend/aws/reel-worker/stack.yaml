@@ -1,0 +1,211 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Bauhly capture reel worker on AWS Lambda — one Lambda per reel, fed by SQS
+  (backend/aws/REEL_WORKER_LAMBDA.md). Deploy with backend/scripts/deploy-reel-lambda.js.
+
+Parameters:
+  CodeBucket: { Type: String, Description: S3 bucket holding the worker zip }
+  CodeKey: { Type: String, Description: S3 key of the worker zip (build-reel-lambda.js) }
+  MediaBucketName: { Type: String, Description: 'The app''s media bucket (S3_BUCKET_NAME)' }
+  MediaCdnBaseUrl: { Type: String, Default: '' }
+  RemotionServeUrl: { Type: String, Description: 'Remotion site for the current bundle (render-lambda.mjs --deploy-site)' }
+  RemotionFunctionName: { Type: String, Description: 'Remotion render function (remotion-render-4-0-523-…)' }
+  FramesPerLambda: { Type: String, Default: '100', Description: 'Frames per Remotion render function (fewer functions per reel = more reels at once)' }
+  MaxConcurrency: { Type: Number, Default: 40, MinValue: 2, Description: Reels running at once (SQS event source) }
+  MemorySize: { Type: Number, Default: 4096 }
+  MongoUri: { Type: String, NoEcho: true }
+  OpenAiApiKey: { Type: String, NoEcho: true }
+  AnthropicApiKey: { Type: String, NoEcho: true }
+  AnthropicModel: { Type: String, Default: '' }
+  ElevenLabsApiKey: { Type: String, NoEcho: true, Default: '' }
+  GeminiApiKey: { Type: String, NoEcho: true, Default: '' }
+  RemotionLicenseKey: { Type: String, NoEcho: true, Default: '' }
+
+Resources:
+  # ── queue ──────────────────────────────────────────────────────────────
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: capture-reels-dlq
+      MessageRetentionPeriod: 1209600 # 14 days
+
+  ReelQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: capture-reels
+      VisibilityTimeout: 960 # > the function's 900 s
+      MessageRetentionPeriod: 86400
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
+        maxReceiveCount: 2
+
+  # ── role ───────────────────────────────────────────────────────────────
+  WorkerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: bauhly-reel-worker
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: reel-worker
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: Queue
+                Effect: Allow
+                Action: [sqs:ReceiveMessage, sqs:DeleteMessage, sqs:GetQueueAttributes, sqs:ChangeMessageVisibility, sqs:SendMessage]
+                Resource: [!GetAtt ReelQueue.Arn, !GetAtt DeadLetterQueue.Arn]
+              - Sid: Media
+                Effect: Allow
+                Action: [s3:GetObject, s3:PutObject, s3:DeleteObject]
+                Resource: !Sub arn:aws:s3:::${MediaBucketName}/*
+              - Sid: MediaList # HeadObject answers 404 (not 403) for a missing key
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub arn:aws:s3:::${MediaBucketName}
+              - Sid: RemotionStorage
+                Effect: Allow
+                Action: [s3:GetObject, s3:PutObject, s3:DeleteObject, s3:ListBucket, s3:GetBucketLocation, s3:PutObjectAcl]
+                Resource: [arn:aws:s3:::remotionlambda-*, arn:aws:s3:::remotionlambda-*/*]
+              - Sid: RemotionList
+                Effect: Allow
+                Action: [s3:ListAllMyBuckets, lambda:ListFunctions, lambda:GetFunction]
+                Resource: '*'
+              - Sid: RemotionRender
+                Effect: Allow
+                Action: [lambda:InvokeFunction, lambda:InvokeAsync]
+                Resource: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:remotion-render-*
+
+  # ── functions ──────────────────────────────────────────────────────────
+  WorkerLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: { LogGroupName: /aws/lambda/bauhly-reel-worker, RetentionInDays: 14 }
+
+  Worker:
+    Type: AWS::Lambda::Function
+    DependsOn: WorkerLogs
+    Properties:
+      FunctionName: bauhly-reel-worker
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      Handler: src/lambda/reelWorker.handler
+      Code: { S3Bucket: !Ref CodeBucket, S3Key: !Ref CodeKey }
+      Role: !GetAtt WorkerRole.Arn
+      MemorySize: !Ref MemorySize
+      Timeout: 900
+      EphemeralStorage: { Size: 4096 }
+      Environment:
+        Variables:
+          NODE_ENV: production
+          REEL_RUNNER: lambda
+          REEL_SQS_URL: !Ref ReelQueue
+          REEL_RENDER_BACKEND: lambda
+          REEL_LOCAL_FALLBACK: '0'
+          REEL_RENDER_MIN_MEMORY_MB: '1024'
+          REEL_LAMBDA_FRAMES_PER_LAMBDA: !Ref FramesPerLambda
+          REMOTION_SERVE_URL: !Ref RemotionServeUrl
+          REMOTION_LAMBDA_FUNCTION: !Ref RemotionFunctionName
+          REMOTION_LICENSE_KEY: !Ref RemotionLicenseKey
+          S3_BUCKET_NAME: !Ref MediaBucketName
+          MEDIA_CDN_BASE_URL: !Ref MediaCdnBaseUrl
+          MONGO_URI: !Ref MongoUri
+          MONGO_MAX_POOL_SIZE: '3'
+          OPENAI_API_KEY: !Ref OpenAiApiKey
+          ANTHROPIC_API_KEY: !Ref AnthropicApiKey
+          ANTHROPIC_MODEL: !Ref AnthropicModel
+          ELEVENLABS_API_KEY: !Ref ElevenLabsApiKey
+          GEMINI_API_KEY: !Ref GeminiApiKey
+
+  WorkerFromQueue:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref Worker
+      EventSourceArn: !GetAtt ReelQueue.Arn
+      BatchSize: 1
+      FunctionResponseTypes: [ReportBatchItemFailures]
+      ScalingConfig: { MaximumConcurrency: !Ref MaxConcurrency }
+
+  DlqLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: { LogGroupName: /aws/lambda/bauhly-reel-worker-dlq, RetentionInDays: 14 }
+
+  DlqWorker:
+    Type: AWS::Lambda::Function
+    DependsOn: DlqLogs
+    Properties:
+      FunctionName: bauhly-reel-worker-dlq
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      Handler: src/lambda/reelWorker.dlq
+      Code: { S3Bucket: !Ref CodeBucket, S3Key: !Ref CodeKey }
+      Role: !GetAtt WorkerRole.Arn
+      MemorySize: 512
+      Timeout: 60
+      Environment:
+        Variables:
+          NODE_ENV: production
+          MONGO_URI: !Ref MongoUri
+          MONGO_MAX_POOL_SIZE: '2'
+
+  DlqFromQueue:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref DlqWorker
+      EventSourceArn: !GetAtt DeadLetterQueue.Arn
+      BatchSize: 10
+
+  # ── the API (Render) may only send to the queue ──────────────────────────
+  ApiSender:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: bauhly-reel-queue-sender
+      Policies:
+        - PolicyName: send-reels
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [sqs:SendMessage, sqs:GetQueueAttributes]
+                Resource: !GetAtt ReelQueue.Arn
+
+  # ── alarms (visible in CloudWatch; add an SNS action to get mail) ──────────
+  DlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: bauhly-reel-worker-dlq
+      AlarmDescription: A reel failed twice on Lambda and went to the dead-letter queue
+      Namespace: AWS/SQS
+      MetricName: NumberOfMessagesSent
+      Dimensions: [{ Name: QueueName, Value: !GetAtt DeadLetterQueue.QueueName }]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  ThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: bauhly-reel-worker-throttles
+      AlarmDescription: Reel Lambdas were throttled (account concurrency)
+      Namespace: AWS/Lambda
+      MetricName: Throttles
+      Dimensions: [{ Name: FunctionName, Value: !Ref Worker }]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+Outputs:
+  QueueUrl: { Value: !Ref ReelQueue, Description: 'REEL_SQS_URL for the API' }
+  ApiSenderUser: { Value: !Ref ApiSender, Description: 'Create an access key for this user → REEL_SQS_ACCESS_KEY_ID / REEL_SQS_SECRET_ACCESS_KEY on the API' }
+  WorkerFunction: { Value: !Ref Worker }

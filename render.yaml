@@ -36,6 +36,22 @@ services:
       # reels render on igsignal-reel-worker, never here (512 MB)
       - key: REEL_WORKER_IN_API
         value: "0"
+      # Reels run one per AWS Lambda (backend/aws/REEL_WORKER_LAMBDA.md): the API only sends
+      # { reelId } to SQS. Active once REEL_SQS_URL is set (the stack's QueueUrl output) —
+      # until then, or if SQS fails, reels go to igsignal-reel-worker (BullMQ) as before.
+      # Kill switch: REEL_RUNNER=queue.
+      - key: REEL_RUNNER
+        value: lambda
+      - key: REEL_SQS_URL
+        sync: false
+      # access key of the stack's bauhly-reel-queue-sender user (send-only)
+      - key: REEL_SQS_ACCESS_KEY_ID
+        sync: false
+      - key: REEL_SQS_SECRET_ACCESS_KEY
+        sync: false
+      # = the stack's MaxConcurrency (the "starts in about N min" estimate)
+      - key: REEL_LAMBDA_MAX_CONCURRENCY
+        value: "40"
       - key: REDIS_URL
         fromService:
           type: keyvalue

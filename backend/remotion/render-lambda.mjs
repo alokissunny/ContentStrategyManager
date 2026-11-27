@@ -15,25 +15,26 @@
  * REEL_LAMBDA_FRAMES_PER_LAMBDA (default: Remotion's auto), REEL_CRF / REEL_JPEG_QUALITY /
  * REEL_X264_PRESET as render.mjs, RENDER_GL (Lambda default: swangle — matched local in the spike).
  */
-import {
-  getFunctions, getOrCreateBucket, getSites, deleteSite, deploySiteFromBundle,
-  renderMediaOnLambda, getRenderProgress, downloadMedia,
-} from '@remotion/lambda';
-import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
+// the render calls come from the small client package (all the Lambda reel worker ships);
+// deploying a site needs the full @remotion/lambda, loaded only for that
+import { getFunctions, getSites, renderMediaOnLambda, getRenderProgress } from '@remotion/lambda-client';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, createWriteStream } from 'node:fs';
+import { pipeline } from 'node:stream/promises';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cachedBundle, addGrain } from './render-shared.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const region = process.env.REMOTION_AWS_REGION || '';
+const region = process.env.REMOTION_AWS_REGION || process.env.AWS_REGION || '';
 const KEEP_SITES = 3;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const unusable = (msg) => Object.assign(new Error(msg), { exitCode: 3 });
 
+// keys: REMOTION_AWS_* (the Render worker), or the function's own role inside AWS Lambda
+const inLambda = Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME);
 function checkEnv() {
-  if (!region || !process.env.REMOTION_AWS_ACCESS_KEY_ID || !process.env.REMOTION_AWS_SECRET_ACCESS_KEY) {
-    throw unusable('Lambda render not configured (REMOTION_AWS_* missing)');
-  }
+  const keys = (process.env.REMOTION_AWS_ACCESS_KEY_ID && process.env.REMOTION_AWS_SECRET_ACCESS_KEY) || inLambda;
+  if (!region || !keys) throw unusable('Lambda render not configured (REMOTION_AWS_* missing)');
 }
 
 async function functionName() {
@@ -46,9 +47,12 @@ async function functionName() {
 
 // the site for the current bundle; uploaded on first use when the build step didn't
 async function site({ prune = false } = {}) {
+  // set by the deploy (the Lambda reel worker has no bundler): use it as is
+  if (process.env.REMOTION_SERVE_URL && !prune) return { serveUrl: process.env.REMOTION_SERVE_URL };
+  const { getOrCreateBucket, deleteSite, deploySiteFromBundle } = await import('@remotion/lambda');
   const bundleDir = await cachedBundle();
   const siteName = `reel-${basename(bundleDir)}`;
-  const marker = resolve(__dirname, '.bundle-cache', `.lambda-site-${region}-${basename(bundleDir)}`);
+  const marker = resolve(dirname(bundleDir), `.lambda-site-${region}-${basename(bundleDir)}`);
   if (!prune && existsSync(marker)) return JSON.parse(readFileSync(marker, 'utf8'));
   const { bucketName } = await getOrCreateBucket({ region, enableFolderExpiry: true });
   const { sites } = await getSites({ region });
@@ -120,7 +124,7 @@ async function render(specPath, outPath) {
     }
     if (progress.done) break;
   }
-  await downloadMedia({ bucketName, region, renderId, outPath: renderOut });
+  await download(progress, bucketName, renderOut);
   console.error(`[render:timing] select 0ms · render ${Date.now() - tReady}ms`);
   console.error(`[render:cost] ${Number(progress.costs?.accruedSoFar || 0).toFixed(5)} · ${progress.lambdasInvoked} lambdas`);
   if (postGrain) {
@@ -130,6 +134,19 @@ async function render(specPath, outPath) {
     console.error(`[render:timing] grain ${Date.now() - tGrain}ms`);
   }
   console.log(outPath);
+}
+
+// the finished MP4 from the render bucket, streamed to disk
+async function download(progress, bucketName, file) {
+  const { S3Client, GetObjectCommand } = await import('@aws-sdk/client-s3');
+  const id = process.env.REMOTION_AWS_ACCESS_KEY_ID;
+  const secret = process.env.REMOTION_AWS_SECRET_ACCESS_KEY;
+  const s3 = new S3Client({ region, ...(id && secret && !inLambda ? { credentials: { accessKeyId: id, secretAccessKey: secret } } : {}) });
+  const Bucket = progress.outBucket || bucketName;
+  const Key = progress.outKey;
+  if (!Key) throw new Error('render finished without an output file');
+  const { Body } = await s3.send(new GetObjectCommand({ Bucket, Key }));
+  await pipeline(Body, createWriteStream(file));
 }
 
 async function main() {

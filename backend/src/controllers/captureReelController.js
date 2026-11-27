@@ -83,7 +83,10 @@ async function queueFacts() {
     .filter((s) => s > 5 && s < 30 * 60).sort((a, b) => a - b);
   const renderSec = took.length ? Math.round(took[Math.floor(took.length / 2)]) : DEFAULT_RENDER_SEC;
   let slots = 1;
-  if (isReelQueueConfigured()) {
+  if (require('../services/reelLambdaRunner').isLambdaRunner()) {
+    // one Lambda per reel, up to the event source's max concurrency
+    slots = Number(process.env.REEL_LAMBDA_MAX_CONCURRENCY) || 40;
+  } else if (isReelQueueConfigured()) {
     const { liveReelWorkers } = require('../workers/reelWorkers');
     const live = await Promise.race([liveReelWorkers(), new Promise((ok) => setTimeout(() => ok(null), 1500))]).catch(() => null);
     if (live && live.length) slots = live.reduce((n, w) => n + (Number(w.concurrency) || 1), 0);

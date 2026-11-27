@@ -39,7 +39,7 @@ async function sweepReels() {
     queueTag: queueTag(),
     status: { $in: ['queued', 'working'] },
     updatedAt: { $lt: new Date(now - QUIET_MS) },
-  }).select('_id status stage attempts jobId createdAt startedAt updatedAt').limit(50).lean();
+  }).select('_id status stage attempts jobId createdAt startedAt updatedAt leaseUntil').limit(50).lean();
   let requeued = 0;
   for (const reel of rows) {
     if (isRunningHere(reel._id)) continue;

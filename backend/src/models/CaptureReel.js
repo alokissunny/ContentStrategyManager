@@ -60,6 +60,10 @@ const captureReelSchema = new mongoose.Schema(
     // BullMQ job carrying it now (a re-queue gets a fresh id)
     attempts: { type: Number, default: 0 },
     jobId: { type: String, default: '' },
+    // Lambda runner (REEL_RUNNER=lambda, src/lambda/reelWorker.js): the run that holds this reel
+    // renews leaseUntil every 30 s; a duplicate SQS delivery or the sweeper sees it's taken
+    leaseUntil: { type: Date, default: null },
+    leaseId: { type: String, default: '' },
     // the queue (environment) it was made in — services/reelQueue.queueTag
     queueTag: { type: String, default: '' },
     startedAt: { type: Date, default: null },

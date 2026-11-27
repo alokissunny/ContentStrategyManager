@@ -2,7 +2,6 @@
  * Shared by render.mjs (local Chrome) and render-lambda.mjs (Remotion Lambda):
  * the hashed webpack bundle and the ffmpeg grain pass for motion reels.
  */
-import { bundle } from '@remotion/bundler';
 import { readFileSync, readdirSync, statSync, existsSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -46,13 +45,16 @@ export async function cachedBundle() {
   const hash = createHash('sha1');
   for (const f of files) hash.update(f).update(readFileSync(f));
   const key = hash.digest('hex').slice(0, 16);
-  const root = resolve(__dirname, '.bundle-cache');
+  // REMOTION_CACHE_DIR: somewhere writable when the code folder isn't (a Lambda: /tmp)
+  const root = process.env.REMOTION_CACHE_DIR || resolve(__dirname, '.bundle-cache');
   const dir = resolve(root, key);
   if (existsSync(resolve(dir, 'index.html'))) return dir;
   console.error('[render] bundling…');
   // old bundles are dead weight once the source changed
   if (existsSync(root)) for (const d of readdirSync(root)) if (d !== key && !d.startsWith('tmp-')) rmSync(resolve(root, d), { recursive: true, force: true });
   const tmp = resolve(root, `tmp-${process.pid}-${Date.now()}`);
+  // loaded only when a bundle is actually built (the Lambda reel worker never builds one)
+  const { bundle } = await import('@remotion/bundler');
   await bundle({ entryPoint: resolve(__dirname, 'src/index.ts'), outDir: tmp, publicDir: resolve(__dirname, 'public') });
   // publish atomically so a parallel render never reads a half-written bundle
   try {
