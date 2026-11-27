@@ -938,11 +938,15 @@ const clipFileCache = new Map();
 async function clipFile(key) {
   if (!clipFileCache.has(key)) {
     clipFileCache.set(key, (async () => {
-      const { buffer } = await getObjectBytes(key);
       const file = path.join(os.tmpdir(), `capreel-clip-${crypto.createHash('sha1').update(key).digest('hex').slice(0, 16)}`);
-      await fs.promises.writeFile(file, buffer);
+      // streamed to disk: a 60+ MB 4K clip held as one Buffer (several clips at once) spiked the
+      // worker's memory (REEL_RENDER_LAMBDA.md Phase 4)
+      const part = `${file}.${process.pid}.part`;
+      const { body } = await getObjectStream(key);
+      await require('stream/promises').pipeline(body, fs.createWriteStream(part));
+      await fs.promises.rename(part, file);
       return file;
-    })());
+    })().catch((err) => { clipFileCache.delete(key); throw err; }));
   }
   return clipFileCache.get(key);
 }
@@ -1500,7 +1504,7 @@ async function buildTimeline({ plan, material, voice, voiceUrl, brand, style = n
 const RENDER_STALL_MS = Number(process.env.REEL_RENDER_STALL_MS) || 4 * 60 * 1000;
 const RENDER_TIMEOUT_MS = Number(process.env.REEL_RENDER_TIMEOUT_MS) || 45 * 60 * 1000;
 
-function renderReel(timeline, outPath, { onProgress = null, timeoutMs = RENDER_TIMEOUT_MS, stallMs = RENDER_STALL_MS } = {}) {
+function renderReel(timeline, outPath, { onProgress = null, timeoutMs = RENDER_TIMEOUT_MS, stallMs = RENDER_STALL_MS, script = 'render.mjs' } = {}) {
   return new Promise((resolve, reject) => {
     const specPath = path.join(os.tmpdir(), `capreel-${crypto.randomUUID()}.json`);
     // sound effects (remotion/src/sfx.tsx) are on unless REEL_SFX=off
@@ -1508,7 +1512,7 @@ function renderReel(timeline, outPath, { onProgress = null, timeoutMs = RENDER_T
     fs.writeFileSync(specPath, JSON.stringify({ composition: 'CaptureReel', props: { reel } }));
     // its own process group, so a kill takes headless Chrome down with it
     // (killing only node leaves Chrome running, holding its memory)
-    const child = spawn('node', ['render.mjs', specPath, outPath], { cwd: REMOTION_DIR, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+    const child = spawn('node', [script, specPath, outPath], { cwd: REMOTION_DIR, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
     const killAll = () => { try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); } };
     // a stop asks first (render.mjs closes Chrome on SIGTERM), then forces
     const stopRender = () => {
@@ -1531,7 +1535,7 @@ function renderReel(timeline, outPath, { onProgress = null, timeoutMs = RENDER_T
     child.stderr.on('data', (d) => {
       const text = d.toString();
       lastSign = Date.now();
-      if (text.includes('[render:timing]')) timingLines += text;
+      if (text.includes('[render:timing]') || text.includes('[render:cost]')) timingLines += text;
       const pct = [...text.matchAll(/\[render\] (\d+)%/g)].pop();
       if (pct && onProgress) { try { onProgress(Number(pct[1])); } catch { /* never stops the render */ } }
       stderr = (stderr + text).slice(-6000);
@@ -1545,7 +1549,11 @@ function renderReel(timeline, outPath, { onProgress = null, timeoutMs = RENDER_T
       const bundleMs = /\[render:timing\] bundle (\d+)ms/.exec(timingLines);
       const renderMs = /· render (\d+)ms/.exec(timingLines);
       const timing = bundleMs && renderMs ? { 'render · bundle': Number(bundleMs[1]), 'render · frames': Number(renderMs[1]) } : null;
-      if (code === 0 && fs.existsSync(outPath)) { resolve({ outPath, timing }); return; }
+      const cost = /\[render:cost\] ([\d.]+)(?: · (\d+) lambdas)?/.exec(timingLines); // render-lambda.mjs only
+      const lambda = cost ? { costUsd: Number(cost[1]), lambdas: Number(cost[2]) || 0 } : null;
+      if (code === 0 && fs.existsSync(outPath)) { resolve({ outPath, timing, lambda }); return; }
+      // render-lambda.mjs: Lambda isn't set up here (no creds / no function) — not a render failure
+      if (code === 3) { reject(Object.assign(new Error('Lambda render unavailable'), { lambdaUnavailable: true, detail: stderr.split('\n').filter(Boolean).slice(-2).join(' | ') })); return; }
       const tail = stderr.split('\n').filter(Boolean).slice(-6).join(' | ');
       // the renderer workspace was never installed on this server (see scripts/setup-remotion.js)
       if (/ERR_MODULE_NOT_FOUND|Cannot find (package|module) '@remotion|Could not find Chrome|browser.*not.*found/i.test(stderr)) {
@@ -1556,6 +1564,53 @@ function renderReel(timeline, outPath, { onProgress = null, timeoutMs = RENDER_T
     });
     child.on('error', (err) => { clearTimeout(timer); clearInterval(watchdog); reject(err); });
   });
+}
+
+// Where the server renders a reel the studio's browser didn't take (REEL_RENDER_LAMBDA.md):
+//   REEL_RENDER_BACKEND=lambda → Remotion Lambda (render-lambda.mjs) on 1080p H.264 clip copies;
+//   any Lambda failure → one local render, so an AWS problem makes a reel slower, never broken.
+//   REEL_LAMBDA_USERS="id1,id2" limits Lambda to those accounts (rollout); unset = everyone.
+//   local (default) → render.mjs in this box.
+function useLambdaFor(userId) {
+  if (String(process.env.REEL_RENDER_BACKEND || 'local').toLowerCase() !== 'lambda') return false;
+  const only = String(process.env.REEL_LAMBDA_USERS || '').split(',').map((x) => x.trim()).filter(Boolean);
+  return !only.length || only.includes(String(userId));
+}
+
+async function renderOnServer(timeline, outPath, { userId, ledger, onProgress }) {
+  if (useLambdaFor(userId)) {
+    const t0 = Date.now();
+    try {
+      const { timeline: light, notes } = await require('./reelRenderProxy').withRenderProxies(timeline);
+      const proxyMs = Date.now() - t0;
+      if (notes.length) ledger.add({ source: 'Capture reel — clip copies for Lambda', elapsedMs: proxyMs, output: notes.join(' · ') });
+      const got = await renderReel(light, outPath, { onProgress, script: 'render-lambda.mjs' });
+      ledger.add({
+        source: 'Capture reel — Lambda render',
+        model: 'remotion-lambda',
+        elapsedMs: Date.now() - t0,
+        costUsd: got.lambda?.costUsd || 0,
+        output: `${got.lambda?.lambdas || '?'} Lambdas · frames ${Math.round((got.timing?.['render · frames'] || 0) / 100) / 10}s`,
+      });
+      return { ...got, timing: { ...(got.timing || {}), ...(proxyMs > 1000 ? { 'render · clip copies': proxyMs } : {}) } };
+    } catch (err) {
+      if (err.userFacing) throw err;
+      console.warn(`[captureReel] Lambda render failed (${err.message}${err.detail ? ` — ${err.detail}` : ''}) — rendering here`);
+      ledger.add({ source: 'Capture reel — Lambda render failed', output: `${err.message} → rendered on the server instead`, note: String(err.detail || '').slice(0, 300) });
+      onProgress?.(0);
+    }
+  }
+  return localRenderSlot(() => renderReel(timeline, outPath, { onProgress }));
+}
+
+// One local Chrome render at a time in this process, however many reels run at once
+// (CAPTURE_REEL_CONCURRENCY): Chrome is ~1–1.4 GB, the reel pipelines around it are small — two
+// renders on the 2 GB worker is what OOM-killed it (2026-11-27). Others wait their turn.
+let localRendering = Promise.resolve();
+function localRenderSlot(fn) {
+  const turn = localRendering.then(fn, fn);
+  localRendering = turn.catch(() => {});
+  return turn;
 }
 
 async function posterOf(mp4Path, atSec) {
@@ -1664,6 +1719,11 @@ async function runCaptureReel(reelId) {
       ledger.add({ source: 'Capture reel — resumed', output: `try ${attempt}: the saved cut is rendered again — no new model calls` });
     } else {
     const material = await loadMaterial(reel, ledger);
+    // Lambda renders read 1080p copies of the clips: start them now, so they encode while the AI
+    // steps below wait on their APIs and the render doesn't wait for them (reelRenderProxy.js)
+    if (useLambdaFor(reel.user)) {
+      require('./reelRenderProxy').warmClipCopies(material.assets.filter((a) => a.kind === 'video').map((a) => a.key));
+    }
     const handle = reel.instagramUsername || '';
     const [dna, colors, fonts] = await Promise.all([
       handle ? loadBrandDna(reel.user, handle).catch(() => null) : null,
@@ -1980,7 +2040,9 @@ async function runCaptureReel(reelId) {
       // the render's own % → the reel (studio + pill progress bars), at most every 5 s
       let pctSaved = -1;
       let pctAt = 0;
-      renderInfo = await renderReel(timeline, tmp, {
+      renderInfo = await renderOnServer(timeline, tmp, {
+        userId: reel.user,
+        ledger,
         onProgress: (pct) => {
           if (pct === pctSaved || (Date.now() - pctAt < 5000 && pct < 100)) return;
           pctSaved = pct;
@@ -2152,6 +2214,9 @@ module.exports = {
   _liftAccent: liftAccent,
   _loadMaterial: loadMaterial,
   _directReel: directReel,
+  // scripts/test-reel-lambda.js
+  _renderOnServer: renderOnServer,
+  _costLedger: costLedger,
   runInProcess,
   isRunningHere,
   runCaptureReel,

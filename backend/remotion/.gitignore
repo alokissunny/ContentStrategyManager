@@ -3,3 +3,4 @@ out/
 .remotion/
 package-lock.json
 .bundle-cache/
+.lambda-spike.json

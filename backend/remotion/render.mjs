@@ -16,17 +16,11 @@
  *
  * Exit code 0 on success; prints the output path as the last stdout line.
  */
-import { bundle } from '@remotion/bundler';
 import { selectComposition, renderMedia, openBrowser } from '@remotion/renderer';
-import { readFileSync, mkdirSync, readdirSync, statSync, existsSync, rmSync } from 'node:fs';
+import { readFileSync, mkdirSync, rmSync } from 'node:fs';
 import os from 'node:os';
-import { createHash } from 'node:crypto';
-import { spawn } from 'node:child_process';
-import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
+import { cachedBundle, addGrain } from './render-shared.mjs';
 
 async function main() {
   const args = process.argv.slice(2);
@@ -151,17 +145,41 @@ async function main() {
 let lastPct = -1;
 
 // How many Chrome tabs render frames at once. Frames scale ~linearly with
-// tabs, so use every CPU the box has — but each tab holds ~450 MB on a reel
+// tabs, so use every CPU the box may use — but each tab holds ~450 MB on a reel
 // with video clips (measured 2026-11-26: 972-frame voiceover reel, one tab,
 // ~1 GB for the renderer + Chrome), so memory caps it too.
 // REEL_RENDER_CONCURRENCY overrides.
+//
+// Both limits are the CONTAINER's, not the host's: on Render, os.cpus() /
+// availableParallelism() and os.totalmem() report the whole host, so the first
+// version of this ran several tabs on the 1-CPU 2 GB reel worker and it was
+// OOM-killed (2026-11-27). The base also counts the worker process that spawned
+// this one (~300 MB: mongoose, sharp, the reel pipeline) and ffmpeg stitching.
 function renderTabs() {
   const forced = Number(process.env.REEL_RENDER_CONCURRENCY);
   if (forced > 0) return forced;
-  const cpus = typeof os.availableParallelism === 'function' ? os.availableParallelism() : os.cpus().length;
-  const memMb = memoryLimitMb();
-  const byMem = Math.floor((memMb - 900) / 450); // ~900 MB for node + Chrome itself
+  const cpus = cpuLimit();
+  const baseMb = Number(process.env.REEL_RENDER_BASE_MB) || 1400;
+  const byMem = Math.floor((memoryLimitMb() - baseMb) / 450);
   return Math.max(1, Math.min(cpus, byMem, 8));
+}
+
+// CPUs this container may use: the cgroup quota (v2 cpu.max "quota period",
+// v1 cfs_quota_us / cfs_period_us) when set, else what the OS reports.
+function cpuLimit() {
+  const host = typeof os.availableParallelism === 'function' ? os.availableParallelism() : os.cpus().length;
+  const readRaw = (f) => { try { return readFileSync(f, 'utf8').trim(); } catch { return null; } };
+  let quota = null;
+  const v2 = readRaw('/sys/fs/cgroup/cpu.max');
+  if (v2) {
+    const [q, period] = v2.split(/\s+/);
+    if (q !== 'max' && Number(q) > 0 && Number(period) > 0) quota = Number(q) / Number(period);
+  } else {
+    const q = Number(readRaw('/sys/fs/cgroup/cpu/cpu.cfs_quota_us'));
+    const period = Number(readRaw('/sys/fs/cgroup/cpu/cpu.cfs_period_us'));
+    if (q > 0 && period > 0) quota = q / period;
+  }
+  return Math.max(1, Math.min(host, quota ? Math.floor(quota) || 1 : host));
 }
 
 // the container's memory limit (cgroup), not the host's — same as backend utils/memoryLimit.js
@@ -177,27 +195,6 @@ function memoryLimitMb() {
   return Math.round(Math.min(bytes || os.totalmem(), os.totalmem()) / (1024 * 1024));
 }
 
-// the same ffmpeg the backend uses (FFMPEG_PATH, else the ffmpeg-static package, else the PATH one)
-function ffmpegBin() {
-  if (process.env.FFMPEG_PATH) return process.env.FFMPEG_PATH;
-  try { return createRequire(import.meta.url)('ffmpeg-static') || 'ffmpeg'; } catch { return 'ffmpeg'; }
-}
-
-// temporal luma grain, light (the page used to draw it at ~9 % multiply); audio copied untouched
-function addGrain(src, dst, crf) {
-  return new Promise((res, rej) => {
-    const p = spawn(ffmpegBin(), [
-      '-hide_banner', '-loglevel', 'error', '-y', '-i', src,
-      '-vf', 'noise=c0s=9:c0f=t+u', '-c:v', 'libx264', '-preset', process.env.REEL_X264_PRESET || 'veryfast',
-      '-crf', String(crf), '-tune', 'grain', '-pix_fmt', 'yuv420p', '-c:a', 'copy', '-movflags', '+faststart', dst,
-    ], { stdio: ['ignore', 'ignore', 'pipe'] });
-    let err = '';
-    p.stderr.on('data', (d) => { err += d; });
-    p.on('error', rej);
-    p.on('close', (code) => (code === 0 ? res() : rej(new Error(`grain pass failed (${code}): ${err.slice(-400)}`))));
-  });
-}
-
 // Capture reels: SwiftShader (pure CPU, works on a GPU-less host) renders
 // ~6× faster than swangle — 150 frames 4.2 s vs 26 s (Nov 2026 bench), and a
 // touch faster than the Mac GPU via ANGLE. The cover keeps swangle.
@@ -210,39 +207,6 @@ function glBackend(id) {
 function frameRange() {
   const m = /^(\d+)-(\d+)$/.exec(String(process.env.RENDER_FRAMES || ''));
   return m ? [Number(m[1]), Number(m[2])] : null;
-}
-
-// Webpack-bundling the compositions costs ~10 s per render. The bundle only
-// changes when src/ or the dependencies do, so it is kept on disk keyed by a
-// hash of those files and reused.
-async function cachedBundle() {
-  const files = [
-    ...readdirSync(resolve(__dirname, 'src')).map((f) => resolve(__dirname, 'src', f)),
-    resolve(__dirname, 'package-lock.json'),
-    // public/ is copied into the bundle (sound effects: scripts/make-sfx.mjs)
-    ...(existsSync(resolve(__dirname, 'public/sfx')) ? readdirSync(resolve(__dirname, 'public/sfx')).map((f) => resolve(__dirname, 'public/sfx', f)) : []),
-  ].filter((f) => existsSync(f) && statSync(f).isFile()).sort();
-  const hash = createHash('sha1');
-  for (const f of files) hash.update(f).update(readFileSync(f));
-  const key = hash.digest('hex').slice(0, 16);
-  const root = resolve(__dirname, '.bundle-cache');
-  const dir = resolve(root, key);
-  if (existsSync(resolve(dir, 'index.html'))) return dir;
-  console.error('[render] bundling…');
-  // old bundles are dead weight once the source changed
-  if (existsSync(root)) for (const d of readdirSync(root)) if (d !== key && !d.startsWith('tmp-')) rmSync(resolve(root, d), { recursive: true, force: true });
-  const tmp = resolve(root, `tmp-${process.pid}-${Date.now()}`);
-  await bundle({ entryPoint: resolve(__dirname, 'src/index.ts'), outDir: tmp, publicDir: resolve(__dirname, 'public') });
-  // publish atomically so a parallel render never reads a half-written bundle
-  try {
-    const { renameSync } = await import('node:fs');
-    renameSync(tmp, dir);
-    return dir;
-  } catch {
-    // another render published the same bundle first
-    if (existsSync(resolve(dir, 'index.html'))) { rmSync(tmp, { recursive: true, force: true }); return dir; }
-    return tmp;
-  }
 }
 
 // Remotion can leave handles open after the file is written (seen: a finished

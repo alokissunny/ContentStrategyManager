@@ -45,6 +45,16 @@ try {
   } catch (err) {
     log(`bundle skipped (the first render will make it): ${err.message}`);
   }
+  // Lambda renders load the same bundle from S3 (site `reel-<bundle hash>`): upload it now, and drop
+  // old sites. Only where Lambda is on; a failure here is fine — the first render uploads it.
+  if (String(process.env.REEL_RENDER_BACKEND || '').toLowerCase() === 'lambda' && process.env.REMOTION_AWS_ACCESS_KEY_ID) {
+    try {
+      log('uploading the bundle for Lambda renders…');
+      execSync('node render-lambda.mjs --deploy-site', { cwd: dir, stdio: 'inherit' });
+    } catch (err) {
+      log(`Lambda site upload skipped (the first Lambda render will do it): ${err.message}`);
+    }
+  }
   log('renderer ready');
 } catch (err) {
   console.error('[setup-remotion] WARNING: the video renderer could not be installed — capture reels and video covers will not render on this server.');

@@ -30,13 +30,28 @@ function startReelWorkers() {
     return { close: async () => {} };
   }
   const concurrency = envPositiveInt('CAPTURE_REEL_CONCURRENCY', 1);
+  let running = 0;
   const worker = new Worker(QUEUE_NAME, async (job) => {
+    running += 1;
+    try {
     const started = Date.now();
     const waited = started - (job.timestamp || started);
     console.log(`[reelWorkers] start reel ${job.data.reelId} · waited ${Math.round(waited / 1000)}s · try ${job.attemptsMade + 1}`);
-    await runCaptureReel(job.data.reelId);
+    // peak memory of this process while the reel ran (other reels running at once count too) —
+    // what sizes the box and CAPTURE_REEL_CONCURRENCY; a local Chrome render is a child process
+    // and isn't in it
+    let peak = process.memoryUsage().rss;
+    const sampler = setInterval(() => { peak = Math.max(peak, process.memoryUsage().rss); }, 2000);
+    sampler.unref?.();
+    try {
+      await runCaptureReel(job.data.reelId);
+    } finally {
+      clearInterval(sampler);
+      console.log(`[reelWorkers] reel ${job.data.reelId} · peak rss ${Math.round(peak / 1048576)} MB · ${running - 1} other reel(s) running`);
+    }
     console.log(`[reelWorkers] done reel ${job.data.reelId} in ${Math.round((Date.now() - started) / 1000)}s`);
     return { reelId: job.data.reelId };
+    } finally { running -= 1; }
   }, {
     connection: redisConnection(),
     concurrency,

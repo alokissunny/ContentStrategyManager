@@ -217,9 +217,11 @@ services:
   # ── Capture reel renderer ───────────────────────────────────────────────
   # Reels (headless Chrome via Remotion + ffmpeg) need ≥ 1.5 GB, so they never
   # run on the 512 MB API — the API only queues them (Redis "capture-reel") and
-  # this worker renders them. `standard` = 2 GB / 1 CPU: one reel at a time.
-  # More reels at once → raise numInstances (each instance takes one), or move
-  # to `pro` (4 GB / 2 CPU) with CAPTURE_REEL_CONCURRENCY=2.
+  # this worker runs them. Frames render on Remotion Lambda (REEL_RENDER_BACKEND,
+  # backend/aws/REEL_RENDER_LAMBDA.md), so a reel here is mostly waiting on APIs:
+  # `standard` (2 GB / 1 CPU) runs CAPTURE_REEL_CONCURRENCY reels at once, with
+  # at most one local Chrome render (the Lambda fallback) at a time. Watch the
+  # `peak rss` line per reel before raising it further.
   # Every key below comes from igsignal-api, so secrets live in one place.
   - type: worker
     name: igsignal-reel-worker
@@ -249,7 +251,28 @@ services:
       - key: REEL_WORKERS
         value: "1"
       - key: CAPTURE_REEL_CONCURRENCY
+        value: "3"
+      # Chrome tabs per render. standard = 1 CPU / 2 GB: a 2nd tab gains no
+      # speed on 1 CPU and OOM-kills the box (2026-11-27). Raise with the plan
+      # (pro 2 CPU/4 GB → "2"); unset = auto from the container's cgroup limits.
+      - key: REEL_RENDER_CONCURRENCY
         value: "1"
+      # Server reel renders on Remotion Lambda (backend/aws/REEL_RENDER_LAMBDA.md):
+      # "lambda" = render-lambda.mjs on 1080p clip copies, one local render if it
+      # fails (or the REMOTION_AWS_* keys are missing); "local" = Chrome in this
+      # box (kill switch). REEL_LAMBDA_USERS (comma-separated user ids) would limit
+      # Lambda to those accounts; unset = everyone.
+      - key: REEL_RENDER_BACKEND
+        value: lambda
+      - key: REMOTION_AWS_REGION
+        value: eu-north-1
+      - key: REMOTION_AWS_ACCESS_KEY_ID
+        sync: false
+      - key: REMOTION_AWS_SECRET_ACCESS_KEY
+        sync: false
+      # Remotion Company Licence key (usage reporting for cloud renders); optional
+      - key: REMOTION_LICENSE_KEY
+        sync: false
       - key: REDIS_URL
         fromService:
           type: keyvalue
