@@ -12,7 +12,7 @@ Parameters:
   RemotionFunctionName: { Type: String, Description: 'Remotion render function (remotion-render-4-0-523-…)' }
   FramesPerLambda: { Type: String, Default: '100', Description: 'Frames per Remotion render function (fewer functions per reel = more reels at once)' }
   MaxConcurrency: { Type: Number, Default: 40, MinValue: 2, Description: Reels running at once (SQS event source) }
-  MemorySize: { Type: Number, Default: 4096 }
+  MemorySize: { Type: Number, Default: 3008, Description: 'Newer accounts cap Lambda at 3008 MB until AWS raises it' }
   MongoUri: { Type: String, NoEcho: true }
   OpenAiApiKey: { Type: String, NoEcho: true }
   AnthropicApiKey: { Type: String, NoEcho: true }
@@ -28,6 +28,7 @@ Resources:
     Properties:
       QueueName: capture-reels-dlq
       MessageRetentionPeriod: 1209600 # 14 days
+      VisibilityTimeout: 120 # > the DLQ function's 60 s
 
   ReelQueue:
     Type: AWS::SQS::Queue

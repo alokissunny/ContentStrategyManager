@@ -99,7 +99,19 @@ async function main() {
   const Parameters = Object.entries(params).map(([ParameterKey, ParameterValue]) => ({ ParameterKey, ParameterValue }));
   const TemplateBody = fs.readFileSync(path.join(ROOT, 'aws', 'reel-worker', 'stack.yaml'), 'utf8');
   let exists = true;
-  try { await cfn.send(new cf.DescribeStacksCommand({ StackName: STACK })); } catch { exists = false; }
+  try {
+    const cur = await cfn.send(new cf.DescribeStacksCommand({ StackName: STACK }));
+    // a first create that failed leaves a stack that can only be deleted
+    if (cur.Stacks?.[0]?.StackStatus === 'ROLLBACK_COMPLETE') {
+      console.log('[deploy] removing the failed first attempt…');
+      await cfn.send(new cf.DeleteStackCommand({ StackName: STACK }));
+      await cf.waitUntilStackDeleteComplete({ client: cfn, maxWaitTime: 900 }, { StackName: STACK });
+      exists = false;
+    }
+  } catch (err) {
+    if (!/does not exist/.test(err.message || '')) throw err;
+    exists = false;
+  }
   const input = { StackName: STACK, TemplateBody, Parameters, Capabilities: ['CAPABILITY_NAMED_IAM'] };
   try {
     await cfn.send(exists ? new cf.UpdateStackCommand(input) : new cf.CreateStackCommand(input));
